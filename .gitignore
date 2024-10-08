@@ -1,0 +1,6 @@
+.venv
+.ruff_cache
+__pycache__
+chroma_db*
+.env
+.token.txt
