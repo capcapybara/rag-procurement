@@ -5,6 +5,7 @@ import logging
 
 import aiofiles
 from dotenv import load_dotenv
+from embedder import Embeddings
 from langchain.prompts import PromptTemplate
 from langchain.retrievers import ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import CrossEncoderReranker
@@ -18,8 +19,6 @@ from langchain_core.callbacks import (
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
-
-from embedder import Embeddings
 
 logging.basicConfig()
 logging.getLogger("langchain.retrievers.multi_query").setLevel(logging.INFO)
@@ -63,6 +62,7 @@ vectorstore = Chroma(
 )
 
 retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 6})
+
 
 prompt = PromptTemplate.from_template(
     """You are an assistant for question-answering tasks that designed to answer about land and real estate law in Bangkok. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know, and also provided the sources of the answer. Keep the answer concise if possible, but you can add more explanation if needed. You must convert any Thai numerals or thai word that mean the number to Arabic numerals. You can ask for more explanation to get better understanding. And please answer with politeness manner for Thai people with male-based pronouns.
@@ -117,17 +117,52 @@ compression_retriever = ContextualCompressionRetriever(
 )
 
 
+def recursive_query(ref, result):
+    if not ref:
+        return
+
+    ref_filter = {"section": {"$in": ref}}
+    related_docs = vectorstore.similarity_search(
+        query="",
+        filter=ref_filter,
+    )
+
+    if not related_docs:
+        return
+    new_ref = []
+    for doc in related_docs:
+        result.append(doc)
+        ref_doc = doc.metadata.get("ref")
+        if ref_doc:
+            new_ref.extend(ref_doc.split(","))
+    recursive_query(new_ref, result)
+
+
+def get_related_docs(docs):
+    print("Running get_related_docs")
+    result = []
+    refs = []
+    for doc in docs:
+        result.append(doc)
+        ref = doc.metadata.get("ref")
+        if ref:
+            refs.extend(ref.split(","))
+
+    recursive_query(refs, result)
+    # dedupe result by section metadata
+    return result
+
+
 def format_docs(docs):
     for doc in docs:
-        print("retriever", doc.page_content[:50])
+        print("retriever", doc, end="\n\n")
     res = "\n\n".join(doc.page_content for doc in docs)
-    print(f"context use {len(res)} characters")
     return res
 
 
 rag_chain = (
     {
-        "context": multi_query_retriever | format_docs,
+        "context": multi_query_retriever | get_related_docs | format_docs,
         "question": RunnablePassthrough(),
     }
     | prompt
@@ -164,6 +199,9 @@ async def process_row(sem, row, res):
         )
 
 
+from datetime import datetime
+
+
 # Main function to read CSV and process rows concurrently
 async def main():
     res = []
@@ -183,15 +221,20 @@ async def main():
 
         await asyncio.gather(*tasks)
         res.sort(key=lambda x: int(x["number"]))
-        with open("result.json", "w", newline="", encoding="utf-8") as f:
+        with open(
+            f"./result/result-{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}.json",
+            "w",
+            newline="",
+            encoding="utf-8",
+        ) as f:
             json.dump(res, f, indent=4, ensure_ascii=False)
 
 
 # Run the async main loop
 if __name__ == "__main__":
-    while True:
-        inp = input("You: ")
-        if inp == "exit":
-            break
-        print("Chatbot:", rag_chain.invoke(inp))
+    # while True:
+    #     inp = input("You: ")
+    #     if inp == "exit":
+    #         break
+    #     print("Chatbot:", rag_chain.invoke(inp))
     asyncio.run(main())

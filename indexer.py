@@ -1,9 +1,10 @@
 # indexing pdf files using langchain
+import re
+
+from embedder import Embeddings
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import UnstructuredPDFLoader
 from langchain_core.documents import Document
-
-from embedder import Embeddings
 
 
 #  law_section_splitter split the document into sections based on keywords "มาตรา {i}"
@@ -15,12 +16,25 @@ def law_section_splitter(docs: list[Document]) -> list[Document]:
         next_i = merged.find(f"มาตรา {i}")
         if next_i == -1:
             break
-        sections.append(
-            Document(page_content=merged[:next_i], metadata={"section": i})
-        )
+        data = merged[:next_i]
         merged = merged[next_i:]
+        ref = [x for x in re.findall(r"มาตรา (\d+)", data) if int(x) != i - 1]
+        ref_commasep = ",".join(ref)
+        sections.append(
+            Document(
+                page_content=data,
+                metadata={"section": str(i - 1), "ref": ref_commasep},
+            )
+        )
         i += 1
-    sections.append(Document(page_content=merged, metadata={"section": i - 1}))
+    ref = [x for x in re.findall(r"มาตรา (\d+)", data) if int(x) != i - 1]
+    ref_commasep = ",".join(ref)
+    sections.append(
+        Document(
+            page_content=merged,
+            metadata={"section": str(i - 1), "ref": ref_commasep},
+        )
+    )
     return sections
 
 
@@ -68,7 +82,7 @@ print("Splitting text")
 # )
 all_splits = law_section_splitter(docs)
 
-
+print(all_splits)
 vectorstore = Chroma.from_documents(
     documents=all_splits, embedding=embedder, persist_directory="./chroma_db"
 )
