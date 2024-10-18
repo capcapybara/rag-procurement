@@ -72,9 +72,6 @@ for doc in raw:
     doc.page_content = replace_thai_number(doc.page_content)
     docs.append(doc)
 
-print("Initing embedder")
-embedder = Embeddings()
-
 print("Splitting text")
 # text_splitter = TokenTextSplitter(
 #     chunk_size=1024,
@@ -82,7 +79,11 @@ print("Splitting text")
 # )
 all_splits = law_section_splitter(docs)
 
-print(all_splits)
+
+print("Initing embedder")
+embedder = Embeddings()
+
+
 vectorstore = Chroma.from_documents(
     documents=all_splits, embedding=embedder, persist_directory="./chroma_db"
 )

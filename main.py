@@ -5,10 +5,11 @@ import logging
 
 import aiofiles
 from dotenv import load_dotenv
-from embedder import Embeddings
 from langchain.prompts import PromptTemplate
 from langchain.retrievers import ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import CrossEncoderReranker
+from langchain.retrievers.document_compressors.cross_encoder_rerank import (
+    CrossEncoderReranker,
+)
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_chroma import Chroma
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
@@ -16,9 +17,12 @@ from langchain_core.callbacks import (
     CallbackManager,
     StreamingStdOutCallbackHandler,
 )
+from langchain_core.documents.base import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
+
+from embedder import Embeddings
 
 logging.basicConfig()
 logging.getLogger("langchain.retrievers.multi_query").setLevel(logging.INFO)
@@ -58,7 +62,7 @@ embedder = Embeddings()
 # create a Chroma object from the persisted directory
 vectorstore = Chroma(
     persist_directory="./chroma_db",
-    embedding_function=embedder,
+    embedding_function=embedder,  # type: ignore
 )
 
 retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 6})
@@ -77,10 +81,6 @@ Answer:"""
 # prompt.add_message("system", system_prompt)
 
 
-def format_docs(docs):
-    return "\n\n".join(doc.page_content for doc in docs)
-
-
 rewrite_prompt = PromptTemplate(
     input_variables=["question"],
     template="""You are an AI language model assistant. Your task is
@@ -95,7 +95,7 @@ rewrite_prompt = PromptTemplate(
 # rewrite_prompt = ChatPromptTemplate.from_template(template)
 
 
-def rewrite_parse(text):
+def rewrite_parse(text: str):
     print("rewrite_parse", text)
     return text.strip('"').strip("**")
 
@@ -107,7 +107,7 @@ multi_query_retriever = MultiQueryRetriever.from_llm(
     retriever=retriever,
     llm=llm,
     prompt=rewrite_prompt,
-    include_original=True,
+    # include_original=True,
 )
 
 crossencoder = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-v2-m3")
@@ -117,14 +117,14 @@ compression_retriever = ContextualCompressionRetriever(
 )
 
 
-def recursive_query(ref, result):
+def recursive_query(ref: list[str], result: list[Document]):
     if not ref:
         return
 
-    ref_filter = {"section": {"$in": ref}}
+    ref_filter = {"id": {"$in": ref}}
     related_docs = vectorstore.similarity_search(
         query="",
-        filter=ref_filter,
+        filter=ref_filter,  # type: ignore
     )
 
     if not related_docs:
@@ -139,7 +139,6 @@ def recursive_query(ref, result):
 
 
 def get_related_docs(docs):
-    print("Running get_related_docs")
     result = []
     refs = []
     for doc in docs:
@@ -153,10 +152,18 @@ def get_related_docs(docs):
     return result
 
 
-def format_docs(docs):
+def format_docs(docs: list[Document]):
+    datas = []
     for doc in docs:
-        print("retriever", doc, end="\n\n")
-    res = "\n\n".join(doc.page_content for doc in docs)
+        data = f"""
+Label/Origin: {doc.metadata.get("id")}
+Content: {doc.page_content}
+"""
+        datas.append(data)
+    res = "\n---\n\n".join(datas)
+
+    print(f"Estimated total length: {len(res)/5}")
+
     return res
 
 
@@ -184,8 +191,19 @@ async def process_row(sem, row, res):
         expected_answer = row[3]
         print(f"Question {no}: {question}")
 
-        # Async call to rag_chain
-        answer = await rag_chain.ainvoke({"question": question})
+        answer = ""
+        for i in range(3):
+            try:
+                answer = await rag_chain.ainvoke({"question": question})
+                break
+            except Exception as e:
+                print(f"Retrying question {no}: {question}")
+                print(e)
+                await asyncio.sleep(2**i)
+
+        if not answer:
+            print(f"Error while processing question {no}: {question}")
+            answer = "Error while processing the question"
 
         # Append result to the shared list
         res.append(
@@ -206,7 +224,7 @@ from datetime import datetime
 async def main():
     res = []
     sem = asyncio.Semaphore(
-        10
+        5
     )  # Adjust this number based on how many tasks you want to run concurrently
 
     async with aiofiles.open(
@@ -230,11 +248,16 @@ async def main():
             json.dump(res, f, indent=4, ensure_ascii=False)
 
 
+MODE = "file"
+
 # Run the async main loop
 if __name__ == "__main__":
-    # while True:
-    #     inp = input("You: ")
-    #     if inp == "exit":
-    #         break
-    #     print("Chatbot:", rag_chain.invoke(inp))
-    asyncio.run(main())
+    match MODE:
+        case "terminal":
+            while True:
+                inp = input("You: ")
+                if inp == "exit":
+                    break
+                print("Chatbot:", rag_chain.invoke(inp))
+        case "file":
+            asyncio.run(main())

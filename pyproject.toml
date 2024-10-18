@@ -23,4 +23,5 @@ dependencies = [
     "flashrank>=0.2.9",
     "asyncio>=3.4.3",
     "aiofiles>=24.1.0",
+    "jsonlines>=4.0.0",
 ]

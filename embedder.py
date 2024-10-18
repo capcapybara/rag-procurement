@@ -14,3 +14,9 @@ class Embeddings:
 
     def embed_query(self, query: str) -> List[float]:
         return self.model.encode([query]).tolist()[0]
+
+    def aembed_documents(self, texts: List[str]) -> List[List[float]]:
+        return [self.model.encode(t).tolist() for t in texts]
+
+    def aembed_query(self, query: str) -> List[float]:
+        return self.model.encode([query]).tolist()[0]
