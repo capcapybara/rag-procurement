@@ -6,7 +6,6 @@ def read_property_tax(property_type: str, property_value: float, constraint: str
     with open('tax.csv', newline='') as csvfile:
         reader = csv.reader(csvfile)
         for row in reader:
-            print(row, property_type, constraint, property_value)
             if row[0] == property_type and row[1] == constraint:
                 property_taxes.append((float(row[2]), float(row[3])))
             
@@ -14,18 +13,22 @@ def read_property_tax(property_type: str, property_value: float, constraint: str
 
 
 @tool
-def calculate_tax(property_type: str, constraint: str, value: float) -> float :
+def calculate_tax(property_type: str, constraint: str, value: float) -> list[str | float] :
     """Calculates_tax based on property type and value.
     property_type: str is "agricultural_land", "house_land", "beneficial_land", "abandoned_land"
     constraints: str, the constraints of the agricultural_land property is normal_person or juristic_person.
-    constraints: str, the constraints of the house_land property is primary_residence_with_own_house_and_land, primary_residence_with_own_house_only, secondary_residence.
+    constraints: str, the constraints of the house_land property is primary_residence_with_own_house_and_land, primary_residence_with_own_house_not_own_land, secondary_residence.
     in other cases, constraints is empty string.
     value: int, the value of the property in million baht.
-    return: float, the tax value in baht.
+    return: 4 values with 
+    1. property_type: str, the type of property.
+    2. constraint: str, the constraints of the property.
+    3. value: float, the value of the property in baht.
+    4. total_tax: float, the total tax of the property in baht.
     """
     # read_property_tax()
 
- # Define tax brackets with lower bounds (lower limit, tax rate)
+    # Define tax brackets with lower bounds (lower limit, tax rate)
     tax_brackets = read_property_tax(property_type, value, constraint)    
     total_tax = 0.0
     
@@ -42,10 +45,8 @@ def calculate_tax(property_type: str, constraint: str, value: float) -> float :
             taxable_income = min(value, upper_bound) - lower_bound
             tax = taxable_income * rate / 100
             total_tax += tax
-            
-            print(f"Taxed {taxable_income} at {rate*100}%: {tax}")
     
-    return total_tax * 1e6  # Convert from million baht to baht
+    return [property_type, constraint.replace("_", " "), value * 1e6, total_tax * 1e6]  # Convert from million baht to baht
 
 def calculate_deprication(property_type, value, years_of_use):
     """Calculates the depreciated value of a property."""
