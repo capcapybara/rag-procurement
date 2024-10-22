@@ -13,10 +13,7 @@ from langchain.retrievers.document_compressors.cross_encoder_rerank import (
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_chroma import Chroma
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
-from langchain_core.callbacks import (
-    CallbackManager,
-    StreamingStdOutCallbackHandler,
-)
+from langchain_core.callbacks import CallbackManager, StreamingStdOutCallbackHandler
 from langchain_core.documents.base import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -69,7 +66,9 @@ retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 6})
 
 
 prompt = PromptTemplate.from_template(
-    """You are an assistant for question-answering tasks that designed to answer about land and real estate law in Bangkok. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know, and also provided the sources of the answer. Keep the answer concise if possible, but you can add more explanation if needed. You must convert any Thai numerals or thai word that mean the number to Arabic numerals. You can ask for more explanation to get better understanding. And please answer with politeness manner for Thai people with male-based pronouns.
+    """You are an assistant for question-answering tasks that designed to answer about land and real estate law in Bangkok. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know, and also provided the sources of the answer. Keep the answer concise if possible, but you can add more explanation if needed. You must convert any Thai numerals or thai word that mean the number to Arabic numerals. You can ask for more explanation to get better understanding. And please answer with politeness manner for Thai people with male-based pronouns (ครับ).
+
+    And this year is พ.ศ. {year_th}, data or question that related to time might get changed due to postponded or delayed events. Please use the current year as a reference only if needed.
 
 Question: {question}
 
@@ -80,17 +79,22 @@ Answer:"""
 
 # prompt.add_message("system", system_prompt)
 
+from datetime import datetime
+
+year_th = datetime.now().year + 543
 
 rewrite_prompt = PromptTemplate(
     input_variables=["question"],
-    template="""You are an AI language model assistant. Your task is
-    to generate 3 different versions of the given user
-    question to retrieve relevant Thai legal documents like act of legislation
- from a vector  database, so the wording should be like the word that use in Thai legal documents.
+    template=f"""You are an AI language model assistant. Your task is
+    to generate 3 sentence of important keywords or phrases that is relevant to the user question to retrieve relevant Thai legal documents like act of legislation from a vector database.
     By generating multiple perspectives on the user question,
     your goal is to help the user overcome some of the limitations
     of distance-based similarity search. Provide these alternative
-    sentence. separated by newlines. Original question: {question}""",
+    sentence. separated by newlines.
+
+    And this year is พ.ศ. {year_th}, data or question that related to time might get changed due to postponded or delayed events. Please use the current year as a reference, do not use any relative time question at all.
+
+    Original question: {"{"}question{"}"}""",
 )
 # rewrite_prompt = ChatPromptTemplate.from_template(template)
 
@@ -111,7 +115,7 @@ multi_query_retriever = MultiQueryRetriever.from_llm(
 )
 
 crossencoder = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-v2-m3")
-compressor = CrossEncoderReranker(model=crossencoder, top_n=5)
+compressor = CrossEncoderReranker(model=crossencoder, top_n=10)
 compression_retriever = ContextualCompressionRetriever(
     base_compressor=compressor, base_retriever=multi_query_retriever
 )
@@ -169,6 +173,7 @@ Content: {doc.page_content}
 
 rag_chain = (
     {
+        "year_th": lambda _: year_th,
         "context": multi_query_retriever | get_related_docs | format_docs,
         "question": RunnablePassthrough(),
     }
@@ -248,7 +253,10 @@ async def main():
             json.dump(res, f, indent=4, ensure_ascii=False)
 
 
-MODE = "file"
+# get the mode argument
+import sys
+
+MODE = sys.argv[1] if len(sys.argv) > 1 else "terminal"
 
 # Run the async main loop
 if __name__ == "__main__":
@@ -261,3 +269,5 @@ if __name__ == "__main__":
                 print("Chatbot:", rag_chain.invoke(inp))
         case "file":
             asyncio.run(main())
+        case _:
+            print("Invalid mode")
