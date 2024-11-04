@@ -13,7 +13,10 @@ from langchain.retrievers.document_compressors.cross_encoder_rerank import (
 from langchain.retrievers.multi_query import MultiQueryRetriever
 from langchain_chroma import Chroma
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
-from langchain_core.callbacks import CallbackManager, StreamingStdOutCallbackHandler
+from langchain_core.callbacks import (
+    CallbackManager,
+    StreamingStdOutCallbackHandler,
+)
 from langchain_core.documents.base import Document
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
@@ -68,7 +71,8 @@ retriever = vectorstore.as_retriever(search_type="mmr", search_kwargs={"k": 6})
 prompt = PromptTemplate.from_template(
     """You are an assistant for question-answering tasks that designed to answer about land and real estate law in Bangkok. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know, and also provided the sources of the answer. Keep the answer concise if possible, but you can add more explanation if needed. You must convert any Thai numerals or thai word that mean the number to Arabic numerals. You can ask for more explanation to get better understanding. And please answer with politeness manner for Thai people with male-based pronouns (ครับ).
 
-    And this year is พ.ศ. {year_th}, data or question that related to time might get changed due to postponded or delayed events. Please use the current year as a reference only if needed.
+    - Context contents that are in "[]" means that it is a data that added to be more informative, which is not a part of the original content. So you should use it to answer the question but not tell the user that it is a part of the original content.
+    - This year is พ.ศ. {year_th}, data or question that related to time might get changed due to postponded or delayed events. Please use the current year as a reference only if needed.
 
 Question: {question}
 
