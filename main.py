@@ -20,6 +20,9 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
 
 from embedder import Embeddings
+from langchain_core.messages import HumanMessage, ToolMessage
+
+from tools import calculate_tax
 
 logging.basicConfig()
 logging.getLogger("langchain.retrievers.multi_query").setLevel(logging.INFO)
@@ -53,6 +56,9 @@ llm = ChatOpenAI(
     timeout=None,
     max_retries=2,
 )
+
+tools = [calculate_tax]
+llm = llm.bind_tools(tools)
 
 embedder = Embeddings()
 
@@ -178,7 +184,6 @@ def reciprocal_rank_fusion(results: list[list], k=60):
 
 multi_query_retriever = generate_query | retriever.map() | reciprocal_rank_fusion
 
-
 crossencoder = HuggingFaceCrossEncoder(model_name="BAAI/bge-reranker-v2-m3")
 compressor = CrossEncoderReranker(model=crossencoder, top_n=20)
 # compression_retriever = ContextualCompressionRetriever(
@@ -244,7 +249,7 @@ rag_chain = (
     }
     | prompt
     | llm
-    | StrOutputParser()
+    # | StrOutputParser()
 )
 
 
@@ -331,7 +336,20 @@ if __name__ == "__main__":
                 inp = input("You: ")
                 if inp == "exit":
                     break
-                print("Chatbot:", rag_chain.invoke(inp))
+                messages = [str(HumanMessage(inp))]
+                ai_msg = llm.invoke(messages)
+                messages.append(str(ai_msg))
+                print(messages)
+                for tool_call in ai_msg.tool_calls: # type: ignore
+                    selected_tool = {"calculate_tax": calculate_tax}[tool_call["name"].lower()]
+                    tool_output = selected_tool.invoke(tool_call["args"]) # type: ignore
+                    messages.append(str(ToolMessage(tool_output, tool_call_id=tool_call["id"])))
+
+                print(messages, '\n')
+                print("Chatbot:", rag_chain.invoke(''.join(messages)).content, '\n')
+
+
+
         case "file":
             asyncio.run(main())
         case _:

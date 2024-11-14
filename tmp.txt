@@ -1,0 +1,14 @@
+[
+    'นาย ก เป็นเจ้าของที่ดิน เพื่อการทํานา จํานวน 1 แปลง ขนาด 300 ตารางวา ที่ดินตั้งอยู่บน ถนนลูกรังเลียบคลองชลประทาน มีมูลค่า ราคาประเมินที่ดิน 28,000 บาท ต่อตารางวา ต้องเสียภาษีเท่าไร', 
+    AIMessage(content='', additional_kwargs={
+        'tool_calls': 
+            [{'id': 'call_F47MP3yS8MNsawYNz2ioRbFW', 'function': {'arguments': '{"property_type":"agricultural","value":840000}', 'name': 'calculate_tax'}, 'type': 'function'}], 
+        'refusal': None
+    }, 
+    response_metadata={
+        'token_usage': {'completion_tokens': 22, 'prompt_tokens': 292, 'total_tokens': 314, 
+            'completion_tokens_details': {'reasoning_tokens': 0}, 'prompt_tokens_details': {'cached_tokens': 0}
+        }, 'model_name': 'gpt-4o-mini-2024-07-18', 'system_fingerprint': 'fp_e2bde53e6e', 'finish_reason': 'tool_calls', 'logprobs': None
+    }, 
+    id='run-2e7e31cc-bea5-41e1-84fb-2fbf36e086da-0', 
+    tool_calls=[{'name': 'calculate_tax', 'args': {'property_type': 'agricultural', 'value': 840000}, 'id': 'call_F47MP3yS8MNsawYNz2ioRbFW', 'type': 'tool_call'}], usage_metadata={'input_tokens': 292, 'output_tokens': 22, 'total_tokens': 314}), ToolMessage(content='84000.0', tool_call_id='call_F47MP3yS8MNsawYNz2ioRbFW')] 
