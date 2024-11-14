@@ -1,4 +1,5 @@
 # indexing pdf files using langchain
+import csv
 import io
 import json
 import os
@@ -66,6 +67,30 @@ def save_docs_to_jsonl(documents: t.Iterable[Document], file_path: str) -> None:
             writer.write(doc.dict())
 
 
+def split_csv(header, content_raw: str) -> list[Document]:
+    docs = []
+    data = csv.reader(content_raw.splitlines())
+    head = []
+    for i, row in enumerate(data):
+        if i == 0:
+            head = row
+            continue
+        content = (
+            header["header"]
+            + "\n"
+            + "\n".join([f"{head[i]}: {x}" for i, x in enumerate(row)])
+        )
+
+        docs.append(
+            Document(
+                id=f"{header['name']} ({i})",
+                page_content=content,
+                metadata={"id": f"{header['name']} ({i})", "ref": ""},
+            )
+        )
+    return docs
+
+
 path = "./raw/"
 
 # get files in the directory
@@ -122,6 +147,13 @@ for file in files:
             )
             all_splits.extend(sections)
             continue
+        elif header["mode"] == "csv":
+            assert "header" in header, "header is not in the header"
+            assert type(header["header"]) is str, "header is not a string"
+            assert header["header"] != "", "header is empty"
+
+            rows = split_csv(header, content)
+            all_splits.extend(rows)
         else:
             print(header)
             raise ValueError(f"Unknown mode {header['mode']}")
