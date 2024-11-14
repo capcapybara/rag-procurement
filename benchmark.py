@@ -21,11 +21,8 @@ llm = ChatOpenAI(
 prompt = PromptTemplate.from_template(
     """I have a system that answers questions. I want to benchmark it by
 checking the correctness of the answers compared to the expected answers.
-Please only return the result of the benchmark in -1,0,1.
+Please only return the result of the benchmark in -1,1.
 1 means the answer is correct with the same meaning as expected.
-0 means the answer is not entirely correct but has the similar meaning as expected
-(for example, the answer is "might" "may" "could" instead of "can" "able" "must")
-or the question is ambiguous.
 -1 means the answer is incorrect or not relevant to the question.
 
 Question: {question}
