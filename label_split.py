@@ -12,6 +12,7 @@ from langchain_core.documents import Document
 
 #  law_section_splitter split the document into sections based on keywords "มาตรา {i}"
 def law_section_splitter(label: str, prefix: str, raw: str) -> list[Document]:
+    print("run law section splitter")
     label = label.strip() + ": "
     prefix = prefix.strip()
     sections: list[Document] = []
@@ -19,12 +20,15 @@ def law_section_splitter(label: str, prefix: str, raw: str) -> list[Document]:
     while True:
         next_i = raw.find(f"{prefix} {i}")
         if next_i == -1:
+            print("not found", f"{prefix} {i}")
             break
         data = raw[:next_i]
+        print()
+        print(next_i, data)
         raw = raw[next_i:]
         ref = [
-            label + prefix + x
-            for x in re.findall(rf"{prefix} (\d+)", data)
+            label + prefix + " " + x
+            for x in re.findall(rf"{prefix}\s+(\d+)", data)
             if int(x) != i - 1
         ]
         ref_commasep = ",".join(ref)
@@ -44,7 +48,7 @@ def law_section_splitter(label: str, prefix: str, raw: str) -> list[Document]:
         i += 1
     ref = [
         label + prefix + " " + x
-        for x in re.findall(rf"{prefix} (\d+)", data)
+        for x in re.findall(rf"{prefix} (\d+)", raw)
         if int(x) != i - 1
     ]
     ref_commasep = ",".join(ref)
@@ -142,9 +146,7 @@ for file in files:
             assert type(header["prefix"]) is str, "prefix is not a string"
             assert header["prefix"] != "", "prefix is empty"
 
-            sections = law_section_splitter(
-                header["name"], header["prefix"], content
-            )
+            sections = law_section_splitter(header["name"], header["prefix"], content)
             all_splits.extend(sections)
             continue
         elif header["mode"] == "csv":

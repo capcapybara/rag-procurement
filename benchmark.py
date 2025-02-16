@@ -13,7 +13,6 @@ load_dotenv()
 llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0,
-    max_tokens=None,
     timeout=None,
     max_retries=2,
 )
@@ -21,9 +20,7 @@ llm = ChatOpenAI(
 prompt = PromptTemplate.from_template(
     """I have a system that answers questions. I want to benchmark it by
 checking the correctness of the answers compared to the expected answers.
-Please only return the result of the benchmark in -1,1.
-1 means the answer is correct with the same meaning as expected.
--1 means the answer is incorrect or not relevant to the question.
+Please only return the result of the benchmark in -1 and 1, 1 means the answer is correct with the same meaning as expected, and -1 means the answer is incorrect or not relevant to the question.
 
 Question: {question}
 
@@ -46,34 +43,40 @@ rag_chain = (
 res = []
 
 
-async def process_data(data, i):
-    s = ""
-    for retry in range(3):
-        try:
-            s = await rag_chain.ainvoke(
-                input={
-                    "question": data["question"],
-                    "correct": data["expected"],
-                    "result": data["answerFromLLM"],
-                }
-            )
-            break
-        except Exception as e:
-            print(f"Retrying work {i} {retry}")
-            print(e)
-            await asyncio.sleep(3**retry)
+async def process_data(data, i,sem):
+    async with sem:
+        s = ""
+        for retry in range(3):
+            try:
+                s = await rag_chain.ainvoke(
+                    input={
+                        "question": data["question"],
+                        "correct": data["expected"],
+                        "result": data["answerFromLLM"],
+                    }
+                )
+                break
+            except Exception as e:
+                print(f"Retrying work {i} {retry}")
+                print(e)
+                await asyncio.sleep(3**retry)
 
-    if not s:
-        s = "Error"
+        if not s:
+            s = "Error"
 
-    data["result"] = s
+        data["result"] = s
 
-    res[i] = data
-    print(f"Done {i + 1}")
+        res[i] = data
+        print(f"Done {i + 1}")
 
 
 files = os.listdir("./result")
 exists = os.listdir("./result_bench")
+
+
+sem = asyncio.Semaphore(
+        3
+)  # Adjust this number based on how many tasks you want to run concurrently
 
 for file in files:
     if file in exists:
@@ -86,7 +89,7 @@ for file in files:
         async def main():
             wrks = []
             for i, d in enumerate(data):
-                wrks.append(process_data(d, i))
+                wrks.append(process_data(d, i,sem))
 
             await asyncio.gather(*wrks)
 

@@ -9,6 +9,7 @@ from langchain_core.documents import Document
 
 prefix = {
     "พรบ2562.section.pdf": "พระราชบัญญัติ ภาษีที่ดินและสิ่งปลูกสร้าง พ.ศ. 2562",
+    "พรบ-จัดซื้อจัดจ้าง-2560.section.pdf": "พระราชบัญญัติการจัดซื้อจัดจ้างและการบริหารพัสดุภาครัฐ พ.ศ. ๒๕๖๐",
 }
 
 
@@ -95,6 +96,18 @@ def replace_thai_number(string: str) -> str:
 path = "./raw/"
 
 # get files in the directory
+def replace_thai_number(string: str) -> str:
+    string = string.replace("๐", "0")
+    string = string.replace("๑", "1")
+    string = string.replace("๒", "2")
+    string = string.replace("๓", "3")
+    string = string.replace("๔", "4")
+    string = string.replace("๕", "5")
+    string = string.replace("๖", "6")
+    string = string.replace("๗", "7")
+    string = string.replace("๘", "8")
+    string = string.replace("๙", "9")
+    return string
 
 
 files = os.listdir(path)
@@ -106,25 +119,30 @@ for file in files:
 
     loader = UnstructuredPDFLoader(
         file_path,
-        mode="elements",
+        # mode="elements",
         languages=["th"],
     )
     raw = loader.load()
     docs = []
     for doc in raw:
-        if (
-            doc.metadata["category"] == "Title"
-            or doc.metadata["category"] == "UncategorizedText"
-        ) and "มาตรา" not in doc.page_content:
-            print("Skipping", doc.metadata["category"], doc.page_content[:100])
-            continue
+        # if (
+        #     (
+        #         doc.metadata["category"] == "Title"
+        #         or doc.metadata["category"] == "UncategorizedText"
+        #     )
+        #     and "มาตรา" not in doc.page_content
+        #     and ("เล่ม " in doc.page_content or "หน้า " in doc.page_content)
+        # ):
+
+        #     print("Skipping", doc.metadata["category"], doc.page_content[:100])
+        #     continue
         doc.page_content = doc.page_content.replace(" า", "ำ")
         doc.page_content = replace_thai_number(doc.page_content)
         docs.append(doc)
 
     print(f"Splitting text from {file}")
 
-    prefix = get_prefix(file)
-    all_splits = law_section_splitter(prefix, docs)
+    prefix_str = get_prefix(file)
+    all_splits = law_section_splitter(prefix_str, docs)
 
     save_docs_to_jsonl(all_splits, "./data/" + file.replace(".pdf", ".jsonl"))

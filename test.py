@@ -4,3 +4,4 @@ data = "มาตรา 83 ผู้ใดขัดขวางการปฏ�
 ref = [x for x in re.findall(r"มาตรา (\d+)", data) if int(x) != 83]
 ref_commasep = ",".join(ref)
 print(ref_commasep)
+

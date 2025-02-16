@@ -14,14 +14,13 @@ from langchain_chroma import Chroma
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_core.callbacks import CallbackManager, StreamingStdOutCallbackHandler
 from langchain_core.documents.base import Document
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.prompts import ChatPromptTemplate, FewShotChatMessagePromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
 
 from embedder import Embeddings
-from langchain_core.messages import HumanMessage, ToolMessage
-
 from tools import calculate_tax
 
 logging.basicConfig()
@@ -49,16 +48,23 @@ n_batch = 512
 #     # verbose=True,
 # )
 
+
 llm = ChatOpenAI(
     model="gpt-4o-mini",
+    # base_url="http://127.0.0.1:6000/v1",
     temperature=0,
-    max_tokens=None,
     timeout=None,
-    max_retries=2,
+    max_retries=10,
+)
+
+llm_cot = ChatOpenAI(
+    model="gpt-4o-mini",
+    # base_url="http://127.0.0.1:6000/v1",
+    # extra_body={"optillm_approach": "cot_reflection"},
 )
 
 tools = [calculate_tax]
-llm = llm.bind_tools(tools)
+llm_with_tools = llm.bind_tools(tools)
 
 embedder = Embeddings()
 
@@ -82,17 +88,44 @@ prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """You are an assistant for question-answering tasks that designed to answer about land and real estate law in Bangkok. Use the following pieces of retrieved context to answer the question. If you don't know the answer, just say that you don't know,. You must convert any Thai numerals or thai word that mean the number to Arabic numerals. You can ask for more explanation to get better understanding. And please answer with politeness manner for Thai people with male-based pronouns (ครับ).
+            """You are an AI assistant that uses a Chain of Thought (CoT) approach with reflection to answer queries about the Public Procurement and Asset Management Act for government. Follow these steps:
+
+        1. Think through the problem **step by step** within the <thinking> tags, your thinking must have a referenceable data from context, focus on what could be done, what couldn't, what's the edge case, are there any other way.
+        2. Reflect on your thinking to check for any errors or improvements within the <reflection> tags.
+        3. Make any necessary adjustments based on your reflection, repeat the process until you have satisfying answer.
+        4. Provide your final, concise answer within the <output> tags with the reference to the context and data you get from.
+
+        Important: The <thinking> and <reflection> sections are for your internal reasoning process only. 
+        Do not include any part of the final answer in these sections. 
+        The actual response to the query must be entirely contained within the <output> tags.
+
+        Use the following format for your response:
+        <thinking>
+            [Your step-by-step reasoning goes here. This is your internal thought process, not the final answer.]
+                    <reflection>
+                [Your reflection on your reasoning, checking for errors or improvements]
+            </reflection>
+        
+            [Any adjustments to your thinking based on your reflection]
+            <reflection>
+                [Another reflection if needed]
+            </reflection>
+        </thinking>
+
+        
+        <output>
+        [Your final, concise answer to the query. This is the only part that will be shown to the user.]
+        </output>
+
+Your objective is to provide clear, step-by-step solutions by deconstructing queries to their foundational concepts and building answers from the ground up.
+
+Use the following pieces of retrieved context as a evidence and reference to your reasoning and answering. You must convert any Thai numerals or thai word that mean the number to Arabic numerals. You can ask for more explanation to get better understanding. And please answer with politeness manner for Thai people with male-based pronouns (ครับ).
 
     + Before you answer the question, please read the context below carefully. If you need more information, you can ask for more explanation.
     + Context contents that are inside "[]" means that it is a data that later added to be more informative to you the AI, which is not a part of the original content. **You must use it to answer the question**.
     + This year is พ.ศ. {year_th}, data or question that related to time might get changed due to postponded or delayed events. Please use the current year as a reference only if needed.
     + You must always provided all sources of the answer (label as "Label/Origin") at the end, give it in specific name that you can refer to the source later.
-
-    Foundational knowledge:
-    + การชำระภาษีที่ดินและสิ่งปลูกสร้าง ต้องคำนึงถึงทั้งตัวที่ดินเองและสิ่งปลูกสร้างที่ตั้งอยู่บนที่ดินนั้น
-    เช่น ถ้าหากมีที่ดินและสิ่งปลูกสร้างมีเจ้าของเป็นคนเดียว จะต้องนำราคาของทั้งสองอย่างมารวมกันแล้วคำนวณภาษี แต่ถ้าหากมีเจ้าของที่ดินและสิ่งปลูกสร้างเป็นคนละคนกัน จะต้องคำนึงถึงราคาของที่ดินและสิ่งปลูกสร้างแยกกันตามเจ้าของ ซึ่งก็เป็นไปได้ว่าเจ้าของที่ดินจะต้องเสียภาษีแม้ว่าจะสิ่งปลูกสร้างดังกล่าวจะไม่ต้องเสียภาษี
-    + กรณีที่มีการยกเว้นภาษีที่ดินและสิ่งปลูกสร้าง จะไม่ต้องคำนึงถึงปัจจัยอื่นๆ นอกจากปัจจัยที่ระบุไว้ในกฎหมายที่พูดถึงการยกเว้นภาษีนั้น
+  
 """,
         ),
         ("system", "Context: {context}"),
@@ -100,7 +133,6 @@ prompt = ChatPromptTemplate.from_messages(
     ]
 )
 
-# prompt.add_message("system", system_prompt)
 
 from datetime import datetime
 
@@ -122,7 +154,7 @@ rewrite_prompt = PromptTemplate(
         3. Paraphrase the question to be easier to find.
         4. Paraphrase the question in opposite manner, e.g. if the question is asking "Is it an A", try paraphrase is to "Is it not A".
         5. If the sentence is composed of multiple parts, provide a question that focuses on one of those parts. If the sentence has only one part, ignore this strategy.
-    
+
     Known opposite words:
     - เสียภาษี : ยกเว้นภาษี
 
@@ -191,7 +223,7 @@ compressor = CrossEncoderReranker(model=crossencoder, top_n=20)
 # )
 
 
-def recursive_query(ref: list[str], result: list[Document]):
+def recursive_query(ref: list[str], done: set[str], result: list[Document]):
     if not ref:
         return
 
@@ -209,7 +241,9 @@ def recursive_query(ref: list[str], result: list[Document]):
         ref_doc = doc.metadata.get("ref")
         if ref_doc:
             new_ref.extend(ref_doc.split(","))
-    recursive_query(new_ref, result)
+    done.update(ref)
+    new_ref = list(set(new_ref).difference(done))
+    recursive_query(new_ref, done, result)
 
 
 def get_related_docs(docs):
@@ -221,7 +255,7 @@ def get_related_docs(docs):
         if ref:
             refs.extend(ref.split(","))
 
-    recursive_query(refs, result)
+    recursive_query(refs, set(), result)
     # dedupe result by section metadata
     return result
 
@@ -248,7 +282,7 @@ rag_chain = (
         "question": RunnablePassthrough(),
     }
     | prompt
-    | llm
+    | llm_cot
     # | StrOutputParser()
 )
 
@@ -260,8 +294,8 @@ async def process_row(sem, row, res):
         question = row[1]
         level = row[2]
 
-        if level != "พื้นฐาน":
-            return  # Skip if level is not "พื้นฐาน"
+        # if level != "พื้นฐาน":
+        #     return  # Skip if level is not "พื้นฐาน"
 
         expected_answer = row[3]
         print(f"Question {no}: {question}")
@@ -278,7 +312,7 @@ async def process_row(sem, row, res):
 
         if not answer:
             print(f"Error while processing question {no}: {question}")
-            answer = "Error while processing the question"
+            answer = BaseMessage("Error while processing the question")
 
         # Append result to the shared list
         res.append(
@@ -287,7 +321,7 @@ async def process_row(sem, row, res):
                 "question": question,
                 "level": level,
                 "expected": expected_answer,
-                "answerFromLLM": answer,
+                "answerFromLLM": str(answer.content),
             }
         )
 
@@ -302,18 +336,16 @@ async def main():
         3
     )  # Adjust this number based on how many tasks you want to run concurrently
 
-    async with aiofiles.open(
-        "question_simple_section.csv", mode="r", encoding="utf-8"
-    ) as f:
+    async with aiofiles.open("law_questions.csv", mode="r", encoding="utf-8") as f:
         csv_reader = csv.reader(await f.readlines())
         next(csv_reader)  # Skip the header
 
         tasks = []
         for row in csv_reader:
             tasks.append(process_row(sem, row, res))
-
         await asyncio.gather(*tasks)
         res.sort(key=lambda x: int(x["number"]))
+
         with open(
             f"./result/result-{datetime.now().strftime('%Y-%m-%d-%H:%M:%S')}.json",
             "w",
@@ -336,19 +368,25 @@ if __name__ == "__main__":
                 inp = input("You: ")
                 if inp == "exit":
                     break
-                messages = [str(HumanMessage(inp))]
-                ai_msg = llm.invoke(messages)
-                messages.append(str(ai_msg))
+                messages: list[BaseMessage] = [HumanMessage(inp)]
+                ai_msg = llm_with_tools.invoke(messages)
+                messages.append(ai_msg)
                 print(messages)
-                for tool_call in ai_msg.tool_calls: # type: ignore
-                    selected_tool = {"calculate_tax": calculate_tax}[tool_call["name"].lower()]
-                    tool_output = selected_tool.invoke(tool_call["args"]) # type: ignore
-                    messages.append(str(ToolMessage(tool_output, tool_call_id=tool_call["id"])))
+                for tool_call in ai_msg.tool_calls:  # type: ignore
+                    selected_tool = {"calculate_tax": calculate_tax}[
+                        tool_call["name"].lower()
+                    ]
+                    tool_output = selected_tool.invoke(tool_call["args"])  # type: ignore
+                    messages.append(
+                        ToolMessage(tool_output, tool_call_id=tool_call["id"])
+                    )
 
-                print(messages, '\n')
-                print("Chatbot:", rag_chain.invoke(''.join(messages)).content, '\n')
-
-
+                print(messages, "\n")
+                print(
+                    "Chatbot:",
+                    rag_chain.invoke(messages).content,
+                    "\n",
+                )
 
         case "file":
             asyncio.run(main())
