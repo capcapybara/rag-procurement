@@ -31,7 +31,7 @@ def law_section_splitter(label: str, prefix: str, raw: str) -> list[Document]:
             for x in re.findall(rf"{prefix}\s+(\d+)", data)
             if int(x) != i - 1
         ]
-        ref_commasep = ",".join(ref)
+        ref_commasep = ",".join(set(ref))
         id = label + f"{prefix} " + str(i - 1)
         if i - 1 == 0:
             id = label + ": หัวเรื่อง"
@@ -51,7 +51,7 @@ def law_section_splitter(label: str, prefix: str, raw: str) -> list[Document]:
         for x in re.findall(rf"{prefix} (\d+)", raw)
         if int(x) != i - 1
     ]
-    ref_commasep = ",".join(ref)
+    ref_commasep = ",".join(set(ref))
     id = label + prefix + " " + str(i - 1)
     if i - 1 == 0:
         id = label + ": หัวเรื่อง"

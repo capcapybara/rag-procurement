@@ -26,7 +26,7 @@ for file in files:
         map = {}
 
         for d in data:
-            add(map, d["level"], d)
+            add(map, "normal", d)
         print(f"Result of {file}:")
         for type, result in map.items():
             print(f"LEVEL: {type}")

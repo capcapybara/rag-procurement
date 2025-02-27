@@ -2,6 +2,7 @@ import asyncio
 import csv
 import json
 import logging
+from os import getenv
 
 import aiofiles
 from dotenv import load_dotenv
@@ -10,15 +11,17 @@ from langchain.prompts import PromptTemplate
 from langchain.retrievers.document_compressors.cross_encoder_rerank import (
     CrossEncoderReranker,
 )
-from langchain_chroma import Chroma
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_core.callbacks import CallbackManager, StreamingStdOutCallbackHandler
 from langchain_core.documents.base import Document
-from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
+from qdrant_client import QdrantClient
+from vectorstore import retriever, doc_kv
 
 from embedder import Embeddings
 from tools import calculate_tax
@@ -49,18 +52,39 @@ n_batch = 512
 # )
 
 
+def env(key: str) -> str:
+    data = getenv(key)
+    assert data is not None
+    return data
+
+
 llm = ChatOpenAI(
-    model="gpt-4o-mini",
+    # model="gpt-4o-mini",
     # base_url="http://127.0.0.1:6000/v1",
+    api_key=SecretStr(env("OPENROUTER_API_KEY")),
+    base_url=env("OPENROUTER_BASE_URL"),
+    model="deepseek/deepseek-r1-distill-qwen-32b",
     temperature=0,
     timeout=None,
     max_retries=10,
 )
 
-llm_cot = ChatOpenAI(
-    model="gpt-4o-mini",
+# llm_cot = ChatOpenAI(
+#     model="gpt-4o-mini",
+#     # base_url="http://127.0.0.1:6000/v1",
+#     # extra_body={"optillm_approach": "cot_reflection"},
+# )
+llm_cot = llm
+
+fast_llm = ChatOpenAI(
+    # model="gpt-4o-mini",
     # base_url="http://127.0.0.1:6000/v1",
-    # extra_body={"optillm_approach": "cot_reflection"},
+    api_key=SecretStr(env("OPENROUTER_API_KEY")),
+    base_url=env("OPENROUTER_BASE_URL"),
+    model="qwen/qwen-turbo",
+    temperature=0,
+    timeout=None,
+    max_retries=10,
 )
 
 tools = [calculate_tax]
@@ -69,12 +93,25 @@ llm_with_tools = llm.bind_tools(tools)
 embedder = Embeddings()
 
 # create a Chroma object from the persisted directory
-vectorstore = Chroma(
-    persist_directory="./chroma_db",
-    embedding_function=embedder,  # type: ignore
-)
+# vectorstore = Chroma(
+#     persist_directory="./chroma_db",
+#     embedding_function=embedder,  # type: ignore
+# )
 
-retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 20})
+
+# sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
+# client = QdrantClient(path="./qdrant")
+
+
+# vectorstore = QdrantVectorStore(
+#     client=client,
+#     collection_name="data",
+#     embedding=embedder,
+#     sparse_embedding=sparse_embeddings,
+#     sparse_vector_name="sparse",
+#     retrieval_mode=RetrievalMode.HYBRID,
+# )
+# retriever = vectorstore.as_retriever(search_type="similarity", search_kwargs={"k": 20})
 
 step_back_example_prompt = ChatPromptTemplate.from_messages(
     [
@@ -103,7 +140,7 @@ prompt = ChatPromptTemplate.from_messages(
         <thinking>
             [Your step-by-step reasoning goes here. This is your internal thought process, not the final answer.]
                     <reflection>
-                [Your reflection on your reasoning, checking for errors or improvements]
+               [Your reflection on your reasoning, checking for errors or improvements]
             </reflection>
         
             [Any adjustments to your thinking based on your reflection]
@@ -114,7 +151,7 @@ prompt = ChatPromptTemplate.from_messages(
 
         
         <output>
-        [Your final, concise answer to the query. This is the only part that will be shown to the user.]
+        [Your final, concise answer to the query with source of the information. This is the only part that will be shown to the user.]
         </output>
 
 Your objective is to provide clear, step-by-step solutions by deconstructing queries to their foundational concepts and building answers from the ground up.
@@ -193,7 +230,7 @@ def split_query(text: str):
     return res
 
 
-generate_query = rewrite_prompt | llm | StrOutputParser() | split_query
+generate_query = rewrite_prompt | fast_llm | StrOutputParser() | split_query
 
 
 def reciprocal_rank_fusion(results: list[list], k=60):
@@ -227,16 +264,15 @@ def recursive_query(ref: list[str], done: set[str], result: list[Document]):
     if not ref:
         return
 
-    ref_filter = {"id": {"$in": ref}}
-    related_docs = vectorstore.similarity_search(
-        query="",
-        filter=ref_filter,  # type: ignore
-    )
+    related_docs = doc_kv.mget(ref)
 
     if not related_docs:
         return
     new_ref = []
-    for doc in related_docs:
+    for i, doc in enumerate(related_docs):
+        if doc is None:
+            print("DOC NOT FOUND!!!", ref[i])
+            continue
         result.append(doc)
         ref_doc = doc.metadata.get("ref")
         if ref_doc:
@@ -246,7 +282,7 @@ def recursive_query(ref: list[str], done: set[str], result: list[Document]):
     recursive_query(new_ref, done, result)
 
 
-def get_related_docs(docs):
+def get_related_docs(docs: list[Document]):
     result = []
     refs = []
     for doc in docs:
@@ -263,6 +299,7 @@ def get_related_docs(docs):
 def format_docs(docs: list[Document]):
     datas = []
     for doc in docs:
+        print(doc.metadata.get("id"))
         data = f"""
 Label/Origin: {doc.metadata.get("id")}
 Content: {doc.page_content}
@@ -283,21 +320,19 @@ rag_chain = (
     }
     | prompt
     | llm_cot
-    # | StrOutputParser()
+    | StrOutputParser()
 )
 
 
 # Function to process each row with semaphore
-async def process_row(sem, row, res):
+async def process_row(sem, row, res, no):
     async with sem:
-        no = row[0]
-        question = row[1]
-        level = row[2]
+        question = row[0]
 
         # if level != "พื้นฐาน":
         #     return  # Skip if level is not "พื้นฐาน"
 
-        expected_answer = row[3]
+        expected_answer = row[1]
         print(f"Question {no}: {question}")
 
         answer = ""
@@ -319,9 +354,8 @@ async def process_row(sem, row, res):
             {
                 "number": no,
                 "question": question,
-                "level": level,
                 "expected": expected_answer,
-                "answerFromLLM": str(answer.content),
+                "answerFromLLM": answer,
             }
         )
 
@@ -336,13 +370,13 @@ async def main():
         3
     )  # Adjust this number based on how many tasks you want to run concurrently
 
-    async with aiofiles.open("law_questions.csv", mode="r", encoding="utf-8") as f:
+    async with aiofiles.open("question-set.csv", mode="r", encoding="utf-8") as f:
         csv_reader = csv.reader(await f.readlines())
         next(csv_reader)  # Skip the header
 
         tasks = []
-        for row in csv_reader:
-            tasks.append(process_row(sem, row, res))
+        for i, row in enumerate(csv_reader, 1):
+            tasks.append(process_row(sem, row, res, i))
         await asyncio.gather(*tasks)
         res.sort(key=lambda x: int(x["number"]))
 
@@ -358,10 +392,9 @@ async def main():
 # get the mode argument
 import sys
 
-MODE = sys.argv[1] if len(sys.argv) > 1 else "terminal"
-
 # Run the async main loop
 if __name__ == "__main__":
+    MODE = sys.argv[1] if len(sys.argv) > 1 else "terminal"
     match MODE:
         case "terminal":
             while True:
@@ -369,24 +402,17 @@ if __name__ == "__main__":
                 if inp == "exit":
                     break
                 messages: list[BaseMessage] = [HumanMessage(inp)]
-                ai_msg = llm_with_tools.invoke(messages)
-                messages.append(ai_msg)
-                print(messages)
-                for tool_call in ai_msg.tool_calls:  # type: ignore
-                    selected_tool = {"calculate_tax": calculate_tax}[
-                        tool_call["name"].lower()
-                    ]
-                    tool_output = selected_tool.invoke(tool_call["args"])  # type: ignore
-                    messages.append(
-                        ToolMessage(tool_output, tool_call_id=tool_call["id"])
-                    )
 
                 print(messages, "\n")
-                print(
-                    "Chatbot:",
-                    rag_chain.invoke(messages).content,
-                    "\n",
-                )
+                print("Chatbot:")
+                for msg in rag_chain.stream(messages):
+                    print(msg, end="", flush=True)
+                print()
+                # print(
+                #     "Chatbot:",
+                #     rag_chain.invoke(messages).content,
+                #     "\n",
+                # )
 
         case "file":
             asyncio.run(main())

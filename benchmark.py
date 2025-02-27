@@ -7,6 +7,8 @@ from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_openai import ChatOpenAI
+from pydantic import SecretStr
+from os import getenv
 
 load_dotenv()
 
@@ -14,8 +16,24 @@ llm = ChatOpenAI(
     model="gpt-4o-mini",
     temperature=0,
     timeout=None,
-    max_retries=2,
+    max_retries=10,
 )
+
+
+def env(key: str) -> str:
+    data = getenv(key)
+    assert data is not None
+    return data
+
+
+# llm = ChatOpenAI(
+#     api_key=SecretStr(env("OPENROUTER_API_KEY")),
+#     base_url=env("OPENROUTER_BASE_URL"),
+#     model="qwen/qwen-turbo",
+#     temperature=0,
+#     timeout=None,
+#     max_retries=10,
+# )
 
 prompt = PromptTemplate.from_template(
     """I have a system that answers questions. I want to benchmark it by
@@ -43,7 +61,7 @@ rag_chain = (
 res = []
 
 
-async def process_data(data, i,sem):
+async def process_data(data, i, sem):
     async with sem:
         s = ""
         for retry in range(3):
@@ -75,7 +93,7 @@ exists = os.listdir("./result_bench")
 
 
 sem = asyncio.Semaphore(
-        3
+    3
 )  # Adjust this number based on how many tasks you want to run concurrently
 
 for file in files:
@@ -89,7 +107,7 @@ for file in files:
         async def main():
             wrks = []
             for i, d in enumerate(data):
-                wrks.append(process_data(d, i,sem))
+                wrks.append(process_data(d, i, sem))
 
             await asyncio.gather(*wrks)
 
