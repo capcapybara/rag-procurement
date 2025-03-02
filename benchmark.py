@@ -12,12 +12,12 @@ from os import getenv
 
 load_dotenv()
 
-llm = ChatOpenAI(
-    model="gpt-4o-mini",
-    temperature=0,
-    timeout=None,
-    max_retries=10,
-)
+# llm = ChatOpenAI(
+#     model="gpt-4o-mini",
+#     temperature=0,
+#     timeout=None,
+#     max_retries=10,
+# )
 
 
 def env(key: str) -> str:
@@ -26,14 +26,14 @@ def env(key: str) -> str:
     return data
 
 
-# llm = ChatOpenAI(
-#     api_key=SecretStr(env("OPENROUTER_API_KEY")),
-#     base_url=env("OPENROUTER_BASE_URL"),
-#     model="qwen/qwen-turbo",
-#     temperature=0,
-#     timeout=None,
-#     max_retries=10,
-# )
+llm = ChatOpenAI(
+    api_key=SecretStr(env("OPENROUTER_API_KEY")),
+    base_url=env("OPENROUTER_BASE_URL"),
+    model="qwen/qwen-turbo",
+    temperature=0,
+    timeout=None,
+    max_retries=10,
+)
 
 prompt = PromptTemplate.from_template(
     """I have a system that answers questions. I want to benchmark it by

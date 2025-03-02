@@ -23,8 +23,12 @@ from pydantic import SecretStr
 from qdrant_client import QdrantClient
 from vectorstore import retriever, doc_kv
 
+from langchain.retrievers import ContextualCompressionRetriever, MultiQueryRetriever
 from embedder import Embeddings
 from tools import calculate_tax
+
+
+from langchain_core.runnables import RunnableLambda
 
 logging.basicConfig()
 logging.getLogger("langchain.retrievers.multi_query").setLevel(logging.INFO)
@@ -219,7 +223,7 @@ def rewrite_parse(text: str):
 # )
 
 
-def split_query(text: str):
+def split_query(text: str) -> list[str]:
     raw = [v.strip() for v in text.split("\n")]
     res = []
     for v in raw:
@@ -233,7 +237,7 @@ def split_query(text: str):
 generate_query = rewrite_prompt | fast_llm | StrOutputParser() | split_query
 
 
-def reciprocal_rank_fusion(results: list[list], k=60):
+def reciprocal_rank_fusion(results: list[list[Document]], k=60) -> list[Document]:
     fused_scores = {}
     for docs in results:
         # Assumes the docs are returned in sorted order of relevance
@@ -347,7 +351,8 @@ async def process_row(sem, row, res, no):
 
         if not answer:
             print(f"Error while processing question {no}: {question}")
-            answer = BaseMessage("Error while processing the question")
+            # answer = BaseMessage("Error while processing the question")
+            return
 
         # Append result to the shared list
         res.append(
@@ -367,7 +372,7 @@ from datetime import datetime
 async def main():
     res = []
     sem = asyncio.Semaphore(
-        3
+        5
     )  # Adjust this number based on how many tasks you want to run concurrently
 
     async with aiofiles.open("question-set.csv", mode="r", encoding="utf-8") as f:
@@ -416,5 +421,3 @@ if __name__ == "__main__":
 
         case "file":
             asyncio.run(main())
-        case _:
-            print("Invalid mode")
