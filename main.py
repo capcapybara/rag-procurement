@@ -30,6 +30,8 @@ from tools import calculate_tax
 
 from langchain_core.runnables import RunnableLambda
 
+from reasoning_chat import ChatReasoning
+
 logging.basicConfig()
 logging.getLogger("langchain.retrievers.multi_query").setLevel(logging.INFO)
 
@@ -62,7 +64,7 @@ def env(key: str) -> str:
     return data
 
 
-llm = ChatOpenAI(
+llm = ChatReasoning(
     # model="gpt-4o-mini",
     # base_url="http://127.0.0.1:6000/v1",
     api_key=SecretStr(env("OPENROUTER_API_KEY")),
@@ -71,6 +73,7 @@ llm = ChatOpenAI(
     temperature=0,
     timeout=None,
     max_retries=10,
+    extra_body={"include_reasoning": True},
 )
 
 # llm_cot = ChatOpenAI(
@@ -187,7 +190,7 @@ rewrite_prompt = PromptTemplate(
     By generating multiple perspectives on the user question,
     your goal is to help the user overcome some of the limitations
     of distance-based similarity search. Provide these alternative
-    sentence. separated by newlines without any kind of suffix (number, dash, etc).
+    sentence, separated by newlines without any kind of suffix (number, dash, etc) and only the your answer without any header **in Thai**.
 
     You should generate using these strategies, one for each if not specified:
         1. Step back and paraphrase a question to a more generic step-back question, which is easier to answer.
@@ -324,7 +327,7 @@ rag_chain = (
     }
     | prompt
     | llm_cot
-    | StrOutputParser()
+    # | StrOutputParser()
 )
 
 
@@ -410,8 +413,22 @@ if __name__ == "__main__":
 
                 print(messages, "\n")
                 print("Chatbot:")
+                reason_end = 1
                 for msg in rag_chain.stream(messages):
-                    print(msg, end="", flush=True)
+                    content = msg.content
+                    reason = msg.additional_kwargs.get("reasoning") or ""
+                    if not reason:
+                        if reason_end == 1:
+                            reason_end = 0
+                        else:
+                            reason_end = -1
+                    if reason_end == 0:
+                        print()
+                        print("REASON END")
+
+                    print(reason, end="", flush=True)
+                    print(content, end="", flush=True)
+
                 print()
                 # print(
                 #     "Chatbot:",

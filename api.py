@@ -50,8 +50,57 @@ async def completions(request: ChatRequest):
     async def generate_response(prompt: list[BaseMessage]):
         # We call the LLM chain with the prompt, token by token
         response = rag_chain.astream(prompt)
+        reason_end = 1
+        yield "data: " + json.dumps(
+            {
+                "id": str(uuid.uuid4()),  # You could generate a unique ID here
+                "object": "chat.completion.chunk",
+                "created": int(time()),
+                # You could generate the current timestamp
+                "model": request.model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"role": "assistant", "content": "<think>"},
+                        "finish_reason": None,
+                    }
+                ],
+            }
+        ) + "\n\n"
         async for chunk in response:
-            print(chunk, end="", flush=True)
+            print(chunk.additional_kwargs.get("reasoning") or "", end="", flush=True)
+            print(chunk.content, end="", flush=True)
+            content = chunk.content
+            reason = chunk.additional_kwargs.get("reasoning") or ""
+            if not reason:
+                if reason_end == 1:
+                    reason_end = 0
+                    yield "data: " + json.dumps(
+                        {
+                            "id": str(
+                                uuid.uuid4()
+                            ),  # You could generate a unique ID here
+                            "object": "chat.completion.chunk",
+                            "created": int(time()),
+                            # You could generate the current timestamp
+                            "model": request.model,
+                            "choices": [
+                                {
+                                    "index": 0,
+                                    "delta": {
+                                        "role": "assistant",
+                                        "content": "</think>",
+                                    },
+                                    "finish_reason": None,
+                                }
+                            ],
+                        }
+                    ) + "\n\n"
+
+                else:
+                    reason_end = -1
+            else:
+                content = reason
             yield "data: " + json.dumps(
                 {
                     "id": str(uuid.uuid4()),  # You could generate a unique ID here
@@ -62,7 +111,7 @@ async def completions(request: ChatRequest):
                     "choices": [
                         {
                             "index": 0,
-                            "delta": {"role": "assistant", "content": chunk},
+                            "delta": {"role": "assistant", "content": content},
                             "finish_reason": None,
                         }
                     ],

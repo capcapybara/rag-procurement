@@ -38,7 +38,7 @@ def law_section_splitter(label: str, prefix: str, raw: str) -> list[Document]:
         sections.append(
             Document(
                 id=id,
-                page_content=data,
+                page_content=label + data,
                 metadata={
                     "id": id,
                     "ref": ref_commasep,
