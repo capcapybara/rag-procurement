@@ -8,6 +8,7 @@ import aiofiles
 from dotenv import load_dotenv
 from langchain.load import dumps, loads
 from langchain.prompts import PromptTemplate
+from langchain.retrievers import ContextualCompressionRetriever, MultiQueryRetriever
 from langchain.retrievers.document_compressors.cross_encoder_rerank import (
     CrossEncoderReranker,
 )
@@ -17,20 +18,15 @@ from langchain_core.documents.base import Document
 from langchain_core.messages import BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableLambda, RunnablePassthrough
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 from qdrant_client import QdrantClient
-from vectorstore import retriever, doc_kv
 
-from langchain.retrievers import ContextualCompressionRetriever, MultiQueryRetriever
 from embedder import Embeddings
-from tools import calculate_tax
-
-
-from langchain_core.runnables import RunnableLambda
-
 from reasoning_chat import ChatReasoning
+from tools import calculate_tax
+from vectorstore import doc_kv, retriever
 
 logging.basicConfig()
 logging.getLogger("langchain.retrievers.multi_query").setLevel(logging.INFO)
@@ -69,7 +65,7 @@ llm = ChatReasoning(
     # base_url="http://127.0.0.1:6000/v1",
     api_key=SecretStr(env("OPENROUTER_API_KEY")),
     base_url=env("OPENROUTER_BASE_URL"),
-    model="deepseek/deepseek-r1-distill-qwen-32b",
+    model="qwen/qwq-32b",
     temperature=0,
     timeout=None,
     max_retries=10,
@@ -132,44 +128,31 @@ prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            """You are an AI assistant that uses a Chain of Thought (CoT) approach with reflection to answer queries about the Public Procurement and Asset Management Act for government. Follow these steps:
-
-        1. Think through the problem **step by step** within the <thinking> tags, your thinking must have a referenceable data from context, focus on what could be done, what couldn't, what's the edge case, are there any other way.
-        2. Reflect on your thinking to check for any errors or improvements within the <reflection> tags.
-        3. Make any necessary adjustments based on your reflection, repeat the process until you have satisfying answer.
-        4. Provide your final, concise answer within the <output> tags with the reference to the context and data you get from.
-
-        Important: The <thinking> and <reflection> sections are for your internal reasoning process only. 
-        Do not include any part of the final answer in these sections. 
-        The actual response to the query must be entirely contained within the <output> tags.
-
-        Use the following format for your response:
-        <thinking>
-            [Your step-by-step reasoning goes here. This is your internal thought process, not the final answer.]
-                    <reflection>
-               [Your reflection on your reasoning, checking for errors or improvements]
-            </reflection>
-        
-            [Any adjustments to your thinking based on your reflection]
-            <reflection>
-                [Another reflection if needed]
-            </reflection>
-        </thinking>
-
-        
-        <output>
-        [Your final, concise answer to the query with source of the information. This is the only part that will be shown to the user.]
-        </output>
-
+            """You are an legal assistant that answer questions about the Public Procurement and Asset Management Act for government. A very important role in the government's ministry where you must answer with high accuracy that can be relied on.
+            
 Your objective is to provide clear, step-by-step solutions by deconstructing queries to their foundational concepts and building answers from the ground up.
 
 Use the following pieces of retrieved context as a evidence and reference to your reasoning and answering. You must convert any Thai numerals or thai word that mean the number to Arabic numerals. You can ask for more explanation to get better understanding. And please answer with politeness manner for Thai people with male-based pronouns (ครับ).
 
+    + Only derive the knowledge and the answer from the provided context and do not provide any information that is not in the context. SO DO NOT HALLUCINATE A RANDOM INFORMATION THAT IS NOT IN THE CONTEXT.
     + Before you answer the question, please read the context below carefully. If you need more information, you can ask for more explanation.
-    + Context contents that are inside "[]" means that it is a data that later added to be more informative to you the AI, which is not a part of the original content. **You must use it to answer the question**.
+    + Context contents that are inside "[]" means that it is a data that later added to be more informative to you the AI, which is not a part of the original content, but **You should use it to answer the question**.
     + This year is พ.ศ. {year_th}, data or question that related to time might get changed due to postponded or delayed events. Please use the current year as a reference only if needed.
     + You must always provided all sources of the answer (label as "Label/Origin") at the end, give it in specific name that you can refer to the source later.
-  
+    + Since all data is a legal document in some way, you must think about how it interact with each other, does one line will disable the usage of the other, can 2 lines be done together.
+    + การจัดซื้อจัดจ้างสิ่งต่างๆ นั้น สามารถทำได้ 3 วิธี ซึ่งเป็นคนละอย่างกัน ได้แก่ 1. วิธีประกาศเชิญชวนทั่วไป 2. วิธีคัดเลือก 3. วิธีเฉพาะเจาะจง
+    + When you found a thai word that could convert to number, you must reciting this table EVERYTIME, do not skip it. And you must show the original thai word and the converted number in the answer like "2,000 บาท (สองพันบาท)".
+    Thai numeric table:
+    10 = สิบ
+    100 = ร้อย
+    1,000 = พัน
+    10,000 = หมื่น
+    100,000 = แสน
+    1,000,000 = ล้าน
+    10,000,000 = ล้าน
+    ...
+    
+
 """,
         ),
         ("system", "Context: {context}"),
@@ -198,10 +181,6 @@ rewrite_prompt = PromptTemplate(
         3. Paraphrase the question to be easier to find.
         4. Paraphrase the question in opposite manner, e.g. if the question is asking "Is it an A", try paraphrase is to "Is it not A".
         5. If the sentence is composed of multiple parts, provide a question that focuses on one of those parts. If the sentence has only one part, ignore this strategy.
-
-    Known opposite words:
-    - เสียภาษี : ยกเว้นภาษี
-
 
     And this year is พ.ศ. {year_th}, data or question that related to time might get changed due to postponded or delayed events. Please use the current year as a reference, do not use any relative time question at all.
 
@@ -305,7 +284,11 @@ def get_related_docs(docs: list[Document]):
 
 def format_docs(docs: list[Document]):
     datas = []
+    used = set()
     for doc in docs:
+        if doc.metadata.get("id") in used:
+            continue
+        used.add(doc.metadata.get("id"))
         print(doc.metadata.get("id"))
         data = f"""
 Label/Origin: {doc.metadata.get("id")}
@@ -363,7 +346,7 @@ async def process_row(sem, row, res, no):
                 "number": no,
                 "question": question,
                 "expected": expected_answer,
-                "answerFromLLM": answer,
+                "answerFromLLM": answer.content,
             }
         )
 
@@ -375,7 +358,7 @@ from datetime import datetime
 async def main():
     res = []
     sem = asyncio.Semaphore(
-        5
+        10
     )  # Adjust this number based on how many tasks you want to run concurrently
 
     async with aiofiles.open("question-set.csv", mode="r", encoding="utf-8") as f:

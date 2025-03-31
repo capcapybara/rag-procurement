@@ -1,21 +1,20 @@
 # indexing pdf files using langchain
 
 import os
+import uuid
 
 import jsonlines
-from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
+from langchain_core.documents import Document
+from langchain_qdrant import FastEmbedSparse, QdrantVectorStore, RetrievalMode
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
     Distance,
-    VectorParams,
-    SparseVectorParams,
     SparseIndexParams,
+    SparseVectorParams,
+    VectorParams,
 )
-from langchain_core.documents import Document
 
 from embedder import Embeddings
-
-import uuid
 
 
 def hash_uuid(string: str | None) -> str:
@@ -61,6 +60,11 @@ if os.path.exists("./doc_kv_store"):
 
     shutil.rmtree("./doc_kv_store")
 
+# if os.path.exists("./data.ms/data.ms"):
+#     import shutil
+
+#     shutil.rmtree("./doc_kv_store")
+
 print("Initing embedder")
 embedder = Embeddings()
 
@@ -80,8 +84,7 @@ for file in files:
         print(doc.metadata.get("id"))
     all_docs.extend(docs)
 
-from vectorstore import retriever, doc_kv
-
+from vectorstore import doc_kv, meili_retriever, qdrant_retriever, retriever
 
 # vectorstore = Chroma.from_documents(
 #     documents=all_docs, embedding=embedder, persist_directory="./chroma_db"
@@ -112,4 +115,5 @@ from vectorstore import retriever, doc_kv
 doc_kv.mset([(v.id or "", v) for v in all_docs])
 
 
-retriever.add_documents(all_docs, [v.id or "" for v in all_docs])
+meili_retriever.add_documents(all_docs)
+qdrant_retriever.add_documents(all_docs, [v.id or "" for v in all_docs])

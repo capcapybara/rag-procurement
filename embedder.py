@@ -1,7 +1,12 @@
+from collections import defaultdict
 from typing import List
 
-from sentence_transformers import SentenceTransformer
 import langchain_core.embeddings as lang
+import torch
+from langchain_qdrant import SparseEmbeddings as QDrantSparseEmbeddings
+from langchain_qdrant import SparseVector
+from sentence_transformers import SentenceTransformer
+from transformers import AutoModel, AutoTokenizer
 
 DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 

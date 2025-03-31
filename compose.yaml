@@ -1,0 +1,22 @@
+version: '3.7'
+
+services:
+  meilisearch:
+    image: getmeili/meilisearch:v1.13
+    container_name: meilisearch
+    ports:
+      - "7700:7700"  # Expose the MeiliSearch API on port 7700
+    volumes:
+      - ./data.ms:/meili_data  # Persist data in the './data.ms' directory
+    environment:
+      MEILI_MASTER_KEY: "admin"  # Optional: Set the master key for secure access
+      MEILI_API_KEY: "admin"
+      MEILISEARCH_KEY: "admin"
+    restart: always  # Restart the container if it stops unexpectedly
+    healthcheck:
+      test: ["CMD", "curl", "--silent", "--fail", "http://localhost:7700/health"]
+      interval: 30s
+      retries: 3
+      start_period: 30s
+      timeout: 10s
+
