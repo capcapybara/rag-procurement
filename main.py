@@ -69,6 +69,7 @@ llm = ChatReasoning(
     temperature=0,
     timeout=None,
     max_retries=10,
+    seed=0,
     extra_body={"include_reasoning": True},
 )
 
